@@ -1,0 +1,4 @@
+# 排除本地产物，只保留页面与文档
+backup/
+preview.png
+.DS_Store

@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>蜘蛛纸牌 Spider Solitaire</title>
+<style>
+:root{
+  --felt:#0e6b4f;--felt-hi:#12805e;--felt-lo:#0a5239;
+  --card:#ffffff;--card-back:#2a5aa8;--card-back2:#3b76c9;
+  --ink:#1a2332;--red:#cf3b3b;--gold:#f5c542;
+  --sel:#ffe08a;--shadow:0 3px 8px rgba(0,0,0,.4);
+  --down-step:10px;    /* 背面牌每张纵向间距 */
+  --up-step:38px;      /* 正面牌每张纵向间距(更大的纵向空间) */
+  --card-h:120px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;min-height:100%}
+body{
+  font-family:-apple-system,"SF Pro Display","PingFang SC","Microsoft YaHei",sans-serif;
+  background:radial-gradient(1200px 700px at 50% -10%,var(--felt-hi),transparent 60%),
+             linear-gradient(180deg,var(--felt),var(--felt-lo));
+  color:#f6f9ff;user-select:none;-webkit-user-select:none;
+  touch-action:auto;   /* 棋盘可原生滑动(横向/纵向) */
+  overflow-x:hidden;overscroll-behavior:none;
+}
+
+/* 顶栏 */
+#topbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;
+  background:#00000033;backdrop-filter:blur(6px);position:sticky;top:0;z-index:30}
+#topbar .title{font-weight:700;font-size:18px;margin-right:auto}
+#scrolly{display:flex;gap:4px;align-items:center}
+#scrolly .lbl{font-size:13px;opacity:.8;margin-right:2px}
+.btn{appearance:none;border:none;cursor:pointer;background:#ffffff22;color:#f6f9ff;
+  border:1px solid #ffffff44;border-radius:10px;padding:8px 13px;font-size:14px;font-weight:600;
+  transition:background .15s,transform .06s;touch-action:manipulation}
+.btn:hover{background:#ffffff38}.btn:active{transform:scale(.96)}
+.btn.primary{background:var(--gold);color:#3c2f00;border-color:transparent}
+.btn.primary:hover{background:#ffd95e}
+.roll{background:#fff2;border-color:#fff5}
+.diff-btn{padding:6px 10px;font-size:13px}
+.diff-btn.on{background:var(--gold);color:#3c2f00;border-color:transparent;font-weight:700}
+#score{font-variant-numeric:tabular-nums;font-weight:700;font-size:17px}
+#deals-left{opacity:.85}
+
+/* 完成区(蛇) + 右侧发牌牌背 */
+#snakes{display:flex;gap:6px;justify-content:center;align-items:flex-start;padding:12px 8px 2px}
+#deal-stack{width:clamp(48px,7.5vw,100px);height:var(--card-h);position:relative;margin-left:10px;
+  cursor:pointer;touch-action:manipulation;flex:none;align-self:flex-start}
+#deal-stack:active{transform:scale(.97)}
+#deal-stack .pile{position:absolute;inset:0;border-radius:9px;
+  background:repeating-linear-gradient(135deg,var(--card-back),var(--card-back) 6px,var(--card-back2) 6px,var(--card-back2) 12px);
+  border:1px solid #1d4280;box-shadow:var(--shadow);
+  display:flex;align-items:center;justify-content:center}
+#deal-stack .pile::after{content:"▼";font-size:24px;color:#fff3;pointer-events:none}
+#deal-stack .count{position:absolute;top:4px;right:6px;font-size:12px;color:#fff;background:#00000066;
+  border-radius:8px;padding:1px 5px;font-weight:700}
+#deal-stack.disabled{opacity:.5;pointer-events:none}
+.snake-slot{width:clamp(48px,7.5vw,100px);height:var(--card-h);border-radius:9px;
+  border:2px dashed #ffffff33;flex:none}
+.snake{width:100%;height:var(--card-h);border-radius:9px;border:2px solid var(--gold);
+  display:flex;align-items:center;justify-content:center;font-size:34px;background:#00000022}
+
+/* 牌桌(可横向滚动) */
+#stage{overflow-x:auto;overflow-y:auto;-webkit-overflow-scrolling:touch;height:calc(100vh - 52px);
+  touch-action:auto}
+#stage-inner{width:max-content;margin:0 auto;padding:0 4px}
+#table{display:flex;gap:0;justify-content:center;padding:6px 6px 60px}
+.col{width:clamp(48px, 7.5vw, 100px);position:relative;margin:0 1px;flex:none}
+.stack{position:relative}
+.orbit{position:relative;height:0}
+
+/* 牌 */
+.card{position:absolute;left:2%;width:96%;height:var(--card-h);border-radius:9px;
+  background:linear-gradient(160deg,#fff,#eef1f5);border:1px solid #cfd6e0;box-shadow:var(--shadow);
+  font-weight:800;will-change:transform,left,top;cursor:grab;touch-action:none}
+.card.face-down{background:repeating-linear-gradient(135deg,var(--card-back),var(--card-back) 6px,var(--card-back2) 6px,var(--card-back2) 12px);
+  border:1px solid #1d4280;cursor:default}
+.card.selected{box-shadow:0 0 0 3px var(--sel),var(--shadow)}
+.card.hint{animation:pulse .7s infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 3px #fd0,var(--shadow)}50%{box-shadow:0 0 0 7px #fd0,var(--shadow)}}
+.card .corner-t{position:absolute;top:4px;left:6px;font-size:13px;line-height:1;display:flex;flex-direction:column;align-items:center}
+.card .corner-b{position:absolute;bottom:4px;right:6px;font-size:13px;line-height:1;transform:rotate(180deg);display:flex;flex-direction:column;align-items:center}
+.card .pip{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:38px;line-height:1}
+.card.red .corner-t,.card.red .corner-b{color:var(--red)}
+.card.black .corner-t,.card.black .corner-b{color:var(--ink)}
+.card.face-down .corner-t,.card.face-down .corner-b,.card.face-down .pip{display:none}
+.empty-slot{position:absolute;top:0;left:2%;width:96%;height:var(--card-h);border-radius:9px;border:2px dashed #ffffff38}
+/* 拖动中: 合法目标列顶高亮 */
+.hint-target{box-shadow:0 0 0 3px #fd0}
+/* 拖动中: 源列(放回原位=取消)高亮 - 用列轮廓, 即使牌已 source-hide 也可见 */
+.col.origin-drop{outline:3px solid var(--sel);outline-offset:-2px;border-radius:11px}
+.col.origin-drop .empty-slot{box-shadow:0 0 0 3px var(--sel)}
+
+/*
+ * 拖拽渲染: 被拖组的卡片各自保留在列内存根位置(定位), 同时加 .dragging 旋转/抬起;
+ * 用一个 fixed 浮层 #drag-layer 承载跟随指针的克隆。
+ */
+#drag-layer{position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;z-index:40}
+#drag-layer .card{position:absolute;cursor:grabbing}
+/* 被上方的牌压住、不可单独拖动的面朝上牌: 盖半透明暗罩 + 顶部压印, 明显锁定 */
+.card.locked{cursor:default}
+.card.locked::before{content:"";position:absolute;inset:0;border-radius:9px;
+  background:linear-gradient(180deg, rgba(0,0,0,.45), rgba(0,0,0,.28) 45%, rgba(0,0,0,.10));
+  box-shadow:inset 0 -10px 14px -6px rgba(0,0,0,.6)}
+.card.locked::after{content:"";position:absolute;left:6px;right:6px;top:4px;height:3px;border-radius:2px;
+  background:rgba(120,120,120,.6)}
+.source-hide{visibility:hidden;opacity:0;pointer-events:none}
+
+/* 发牌动画: 新牌淡入 + 从上落下 */
+.card.deal-anim{animation:dealIn 1s ease}
+@keyframes dealIn{from{opacity:0;transform:translateY(-26px) scale(.9)}to{opacity:1;transform:translateY(0) scale(1)}}
+
+/* 收蛇动画: 仅当新收的一组(snake-pop)才弹出, 已存在的蛇不动画 */
+.snake-pop{animation:snakePop 1s ease}
+@keyframes snakePop{0%{opacity:0;transform:scale(.4) rotate(-6deg);filter:brightness(1.6)}
+  60%{opacity:1;transform:scale(1.12) rotate(2deg)}
+  100%{opacity:1;transform:scale(1) rotate(0)}}
+
+/* 提示 toast */
+#toast{position:fixed;left:50%;bottom:30px;transform:translateX(-50%) translateY(20px);
+  background:#1c2733ee;border:1px solid #ffffff40;padding:10px 18px;border-radius:12px;
+  font-size:15px;opacity:0;pointer-events:none;transition:all .25s;z-index:50}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+#win{position:fixed;inset:0;background:#000000aa;backdrop-filter:blur(3px);
+  display:none;align-items:center;justify-content:center;flex-direction:column;z-index:60;text-align:center}
+#win.show{display:flex}
+#win h1{font-size:44px;margin:0 0 6px;color:var(--gold);text-shadow:0 2px 12px #0008}
+#win p{font-size:18px;margin:0 0 24px;opacity:.9}
+#win .btn{font-size:18px;padding:12px 28px}
+
+@media (max-width:700px){
+  #topbar{gap:6px;padding:8px 8px}
+  #topbar .title{font-size:15px}
+  .btn{padding:6px 9px;font-size:12px}
+  .card{height:calc(var(--card-h)*.72);border-radius:7px}
+  .card .pip{font-size:26px}
+  .card .corner-t,.card .corner-b{font-size:10px}
+  .snake-slot,.snake,.empty-slot,#deal-stack{height:calc(var(--card-h)*.72)}
+  :root{--down-step:8px;--up-step:28px}
+}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="title">🕷️ 蜘蛛纸牌</div>
+  <div id="scrolly">
+    <button class="btn roll diff-btn on" data-diff="1">单</button>
+    <button class="btn roll diff-btn" data-diff="2">双</button>
+    <button class="btn roll diff-btn" data-diff="4">四</button>
+  </div>
+  <button class="btn" id="btn-undo">↩撤销</button>
+  <button class="btn" id="btn-hint">💡</button>
+  <button class="btn primary" id="btn-new">🔄新局</button>
+  <span id="score">500</span>
+  <span id="deals-left">剩5轮</span>
+</div>
+
+<div id="stage">
+  <div id="stage-inner">
+    <div id="snakes"></div>
+    <div id="table"></div>
+  </div>
+</div>
+<div id="drag-layer"></div>
+<div id="toast"></div>
+<div id="win">
+  <h1>🎉 恭喜通关！</h1>
+  <p id="win-msg"></p>
+  <button class="btn primary" id="btn-win-new">再来一局</button>
+</div>
+
+<script>
+"use strict";
+/* =========================================================
+   蜘蛛纸牌
+   交互升级 (2026-09-25):
+     - 更大纵向空间 (face-down 10px, face-up ~38px 错落)
+     - 点击可移动组 → 自动移动到最近合法目标
+     - 拖拽: 牌组实时跟随指针/手指 (pointer events + 浮层)
+   规则: 104 张; 难度=花色数(1/2/4); 10 列; 同花色连续降序可整组移动;
+         目标顶牌=组顶+1(任意花色)或空列; 完整 K..A 同花色自动收蛇。
+   ========================================================= */
+const RANKS=[13,12,11,10,9,8,7,6,5,4,3,2,1];
+let state=null, history=[], selected=null, hintMove=null, toastTimer=null;
+let drag=null;   // 拖拽状态
+const $=id=>document.getElementById(id);
+const suitSym=s=>["♠","♥","♣","♦"][s%4];
+const suitRed=s=>[1,3].includes(s%4);
+const rankLabel=r=>({13:"K",12:"Q",11:"J",1:"A"})[r]||String(r);
+
+/* ---------- 建牌/开局 ---------- */
+function buildDeck(diff){
+  const rep=diff===1?8:(diff===2?4:2);
+  const deck=[];
+  for(let s=0;s<diff;s++) for(const r of RANKS) for(let k=0;k<rep;k++) deck.push({r,s});
+  for(let i=deck.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[deck[i],deck[j]]=[deck[j],deck[i]];}
+  return deck;
+}
+function newGame(diff){
+  const deck=buildDeck(diff);
+  const cols=Array.from({length:10},()=>[]);
+  const counts=[6,6,6,6,5,5,5,5,5,5];
+  for(let c=0;c<10;c++) for(let i=0;i<counts[c];i++) cols[c].push(deck.pop());
+  cols.forEach(col=>col.forEach((cd,i)=>cd.faceUp=(i===col.length-1)));
+  state={diff,cols,stock:deck,score:500,dealsLeft:5,completed:[],justDealt:false};
+  history=[];selected=null;hintMove=null;cancelDrag();
+  for(const b of document.querySelectorAll('.diff-btn')) b.classList.toggle('on',+b.dataset.diff===diff);
+  render();
+}
+
+/* ---------- 顶层/规则 ---------- */
+function faceUpStart(col){ let i=col.length-1; while(i>0 && col[i].faceUp) i--; return i; }
+function colTop(col){ return col.length?col[col.length-1]:null; }
+function movableGroup(col,from){
+  if(from<0||from>=col.length||!col[from].faceUp) return null;
+  // 必须延伸到列顶(last)才能移动: 蜘蛛规则, 否则上方面朝上牌会悬空
+  if(!col[col.length-1].faceUp) return null;
+  const suite=col[from].s, seq=[col[from]];
+  for(let i=from+1;i<col.length;i++){
+    if(!col[i].faceUp) break;
+    if(col[i].s===suite && col[i].r===col[i-1].r-1) seq.push(col[i]); else break;
+  }
+  if(from+seq.length-1 !== col.length-1) return null;  // 未延伸到列顶 -> 不可拖
+  return seq;
+}
+/* 列顶延伸的同花降序顺联的起始下标; [topRunStart..last] 是可拖组 */
+function topRunStart(col){
+  let s=col.length-1;
+  while(s>0){
+    const a=col[s-1], b=col[s];
+    if(a.faceUp && b.faceUp && a.s===b.s && a.r===b.r+1) s--;
+    else break;
+  }
+  return s;
+}
+function canPlace(fromR,toCol){ return toCol.length===0 || colTop(toCol).r===fromR+1; }
+
+/* ---------- 目标搜寻 ---------- */
+function legalTargets(fromR, fromCol){
+  const out=[];
+  for(let t=0;t<10;t++){ if(t===fromCol) continue; if(canPlace(fromR,state.cols[t])) out.push(t); }
+  return out;
+}
+function nearestTarget(fromCol, targets){
+  // 按两列中心水平距离最近选
+  let best=null, bestDist=1e18;
+  const colEls=Array.from(document.querySelectorAll('.col'));
+  const cl=colEls[fromCol]?colEls[fromCol].getBoundingClientRect().left:0;
+  for(const t of targets){
+    const el=colEls[t]; if(!el) continue;
+    const d=Math.abs(el.getBoundingClientRect().left-cl);
+    if(d<bestDist){ bestDist=d; best=t; }
+  }
+  return best;
+}
+/* 最长顺列优先: 在多个合法目标中, 选"放牌后能形成最长连续顺列"的目标。
+   评分 = 该目标列顶牌与本组(组顶 fromRank 同花)的连续延伸长度。
+   蜘蛛纸牌移动的是同花色连续降序串; 把牌放到一个"顶牌正好能接续本组且同花"的列上,
+   会大幅延长可移动链(利于后续连锁), 故优先; 空列/不同花视为较次。 */
+function bestRunTarget(fromCol, targets, fromCard){
+  let best=null, bestScore=-1;
+  for(const t of targets){
+    const col=state.cols[t];
+    let score;
+    if(col.length===0){
+      score = 0;                       // 空列: 单独放置, 无延伸
+    } else {
+      const top=col[col.length-1];
+      if(top.s===fromCard.s){          // 同花: 顶牌能接续本组 -> 顺列延伸 = 目标列顶向下连续同花长度
+        score = col.length - topRunStart(col);
+      } else {
+        score = 0;                     // 不同花也能放但顺列断掉
+      }
+    }
+    if(score>bestScore){ bestScore=score; best=t; }
+  }
+  return best;
+}
+
+/* ---------- 移动 ---------- */
+function moveGroup(fc,fi,tc){
+  pushHistory();
+  const moving=state.cols[fc].splice(fi);
+  state.cols[tc].push(...moving);
+  const f=state.cols[fc];
+  if(f.length && !f[f.length-1].faceUp) f[f.length-1].faceUp=true;
+  state.score=Math.max(0,state.score-1);
+  selected=null;hintMove=null;cancelDrag();
+  checkCompleteChain(tc);
+  render();
+}
+function checkCompleteChain(col){
+  const arr=state.cols[col]; if(arr.length<13) return;
+  const tail=arr.slice(-13), suite=tail[0].s;
+  if(tail.every((c,i)=>c.faceUp && c.s===suite && c.r===RANKS[i])){
+    arr.splice(arr.length-13,13);
+    state.completed.push(tail);
+    state.score+=100;
+    if(arr.length && !arr[arr.length-1].faceUp) arr[arr.length-1].faceUp=true;
+    toast(`✨ 完成一组 ${suitSym(suite)} 全收！`);
+    if(state.completed.length===8) winGame();
+  }
+}
+
+/* ---------- 发牌/撤销 ---------- */
+function deal(){
+  if(state.dealsLeft<=0||state.stock.length===0){ toast("没有可发的牌了");return; }
+  if(state.cols.some(c=>c.length===0)){ toast("有空的列，无法发牌（请先填满）");return; }
+  pushHistory();
+  for(let c=0;c<10;c++){ const cd=state.stock.pop(); cd.faceUp=true; state.cols[c].push(cd); }
+  state.dealsLeft--; selected=null;hintMove=null;
+  state.justDealt=true;   // 标记这批新牌, render 时加发牌动画
+  render();
+}
+function snapshot(){ return JSON.parse(JSON.stringify(state)); }
+function pushHistory(){ history.push(snapshot()); }
+function undo(){
+  if(!history.length){ toast("没有可撤销的操作"); return; }
+  state=history.pop(); selected=null;hintMove=null;cancelDrag();
+  render(); toast("已撤销");
+}
+
+/* ---------- 提示 ---------- */
+function hint(){
+  for(let f=0;f<10;f++){
+    const col=state.cols[f];
+    for(let i=faceUpStart(col);i<col.length;i++){
+      const grp=movableGroup(col,i); if(!grp) continue;
+      for(let t=0;t<10;t++){
+        if(t===f) continue;
+        if(canPlace(grp[0].r,state.cols[t])){
+          hintMove={fc:f,fi:i,tc:t};
+          render();
+          const el=document.querySelector(`.card[data-col="${f}"][data-idx="${i}"]`);
+          if(el) el.classList.add('hint');
+          const tgt=document.querySelector(`.col[data-ci="${t}"] .empty-slot, .col[data-ci="${t}"] .stack > .card:last-child`);
+          if(tgt) tgt.classList.add('hint-target');
+          return;
+        }
+      }
+    }
+  }
+  toast("没有可用的合法移动");
+}
+
+/* =========================================================
+   渲染 + 定位
+   ========================================================= */
+function render(){
+  const dl0=$('drag-layer'); if(dl0) dl0.innerHTML='';   // 兜底: 松手后清除拖拽浮层虚影
+  const table=$('table'); table.innerHTML='';
+  for(let c=0;c<10;c++){
+    const colDiv=document.createElement('div'); colDiv.className='col'; colDiv.dataset.ci=c;
+    const stack=document.createElement('div'); stack.className='stack';
+    const fc=state.cols[c];
+    const start=faceUpStart(fc);
+    if(fc.length===0){ const es=document.createElement('div'); es.className='empty-slot'; stack.appendChild(es); }
+    // 计算整列高度, 给 stack 留出可点击的纵向空间
+    let colH=0;
+    const runStart=topRunStart(fc);   // 列顶延伸的可拖顺联起始下标
+    for(let i=0;i<fc.length;i++){
+      const cd=fc[i], el=makeCardEl(c,i,cd);
+      // 面朝上、但在可拖顺联上方(被更上面的牌压住、非列顶顺联) -> 盖阴影锁定
+      if(cd.faceUp && i<runStart) el.classList.add('locked');
+      // 刚发牌的这批新顶牌: 加发牌入场动画
+      if(state.justDealt && cd.faceUp && i===fc.length-1) el.classList.add('deal-anim');
+      let top;
+      if(i<start){ top=i*stepDown(); }              // 背面: 紧凑堆叠
+      else { top=(start*stepDown())+((i-start)*stepUp()); }  // 正面: 大间隔错落
+      colH=top+el.offsetHeight;
+      el.style.top=top+'px';
+      stack.appendChild(el);
+    }
+    // 让 stack 高度足以容纳整列 + 底部留白, 使空列/下半区可点
+    stack.style.height=(colH+20)+'px';
+    colDiv.appendChild(stack);
+    colDiv.addEventListener('pointerdown',e=>{
+      const cardEl=e.target.closest('.card');
+      if(cardEl){ startDrag({c, idx:+cardEl.dataset.idx, el:cardEl, ev:e}); }
+      else onColPress(c,e);
+    });
+    table.appendChild(colDiv);
+  }
+  // 完成区
+  $('snakes').innerHTML='';
+  for(let i=0;i<8;i++){
+    const slot=document.createElement('div'); slot.className='snake-slot';
+    if(state.completed[i]){
+      // 最新刚收的一组才弹入动画(避免每次 render 重复触发)
+      const isNew = (i===state.completed.length-1);
+      const s=document.createElement('div'); s.className='snake'+(isNew?' snake-pop':'');
+      const suite=state.completed[i][0].s;
+      s.innerHTML=`<span style="color:${suitRed(suite)?'var(--red)':'#fff'}">${suitSym(suite)}</span>`;
+      slot.appendChild(s);
+    }
+    $('snakes').appendChild(slot);
+  }
+  // 发牌牌背(蛇区右侧): 显示剩余轮数, 点击发牌
+  const ds=document.createElement('div'); ds.id='deal-stack';
+  ds.className= state.dealsLeft<=0 || state.stock.length===0 ? 'disabled' : '';
+  ds.title='发下一轮牌';
+  ds.innerHTML=`<div class="pile"></div><div class="count">${state.dealsLeft}</div>`;
+  ds.addEventListener('click',e=>{ e.stopPropagation(); deal(); });
+  $('snakes').appendChild(ds);
+  $('score').textContent=state.score;
+  $('deals-left').textContent=`剩${state.dealsLeft}轮 · ${state.completed.length}/8组`;
+  if(state.justDealt) state.justDealt=false;   // 动画标记用一次即清
+}
+function stepDown(){ const m=getComputedStyle(document.documentElement); return +m.getPropertyValue('--down-step')||10; }
+function stepUp(){ const m=getComputedStyle(document.documentElement); return +m.getPropertyValue('--up-step')||38; }
+function makeCardEl(c,i,cd){
+  const el=document.createElement('div');
+  el.className='card'+(cd.faceUp?'':' face-down');
+  if(cd.faceUp) el.classList.add(suitRed(cd.s)?'red':'black');
+  el.dataset.col=c; el.dataset.idx=i;
+  if(selected && c===selected.fc && i===selected.fi) el.classList.add('selected');
+  if(cd.faceUp){
+    const sy=suitSym(cd.s);
+    el.innerHTML=`<div class="corner-t"><span>${rankLabel(cd.r)}</span><span>${sy}</span></div>
+      <div class="pip" style="color:${suitRed(cd.s)?'var(--red)':'var(--ink)'}">${sy}</div>
+      <div class="corner-b"><span>${sy}</span><span>${rankLabel(cd.r)}</span></div>`;
+  }
+  return el;
+}
+
+/* =========================================================
+   交互: 拖拽 + 点击自动移动
+   ========================================================= */
+
+/* --- 拖拽 --- */
+function startDrag({c:col, idx}){
+  const colArr=state.cols[col], grp=movableGroup(colArr,idx);
+  if(!grp){ return; }
+  // 无论目标, 都进入候选: 记录组
+  drag={ col, idx };       // 轻量: 用全局 "启始按下" 标记, 移动后判断拖动
+}
+function cancelDrag(){ drag=null;
+  const dl=$('drag-layer'); if(dl) dl.innerHTML='';   // 清空浮层, 消除虚影残留
+}
+function isDragging(){ return drag && drag.active; }
+
+/* 实际拖拽用 pointer capture on card; 更稳的做法: 列内卡片各自绑定 move/up。
+   因为 group 由 idx..end 组成, 我们把组内所有卡设为可拖, 统一走列监听。
+
+   为简洁可靠: 用全局事件委托。pointerdown 记录 {col,idx}; 若移动>8px 进 drag;
+   pointermove 移动浮层; pointerup 放置。 */
+function layoutDragLayer(){
+  // 把源组的所有卡克隆进浮层并按组内相对位置排布
+  const dl=$('drag-layer'); dl.innerHTML='';
+  const fc=state.cols[drag.col], start=drag.idx, n=fc.length-start;
+  for(let k=0;k<n;k++){
+    const cd=fc[start+k];
+    const el=makeCardEl('d',k,cd);
+    el.style.width=cardWidthPx()+'px';
+    el.style.height=cardHeightPx()+'px';
+    el.style.left='0px'; el.style.top=(k*stepUp())+'px';
+    dl.appendChild(el);
+  }
+}
+function cardWidthPx(){ const c=document.querySelector('.col .card'); return c?c.offsetWidth:70; }
+function cardHeightPx(){ const c=document.querySelector('.col .card'); return c?c.offsetHeight:120; }
+
+function columnAtX(x){
+  const cols=Array.from(document.querySelectorAll('.col'));
+  let best=null,bd=1e18;
+  for(const el of cols){
+    const r=el.getBoundingClientRect(), cx=r.left+r.width/2;
+    const d=Math.abs(cx-x);
+    if(d<bd){bd=d;best=+el.dataset.ci;}
+  }
+  return best;
+}
+
+/* 松手落位判定: 在所有列里按 |列中心到指针x| 升序遍历,
+   返回「源列或任意 canPlace 的目标列」。源列(fromCol)视为**总能放回原位的目标**
+   (把拖起的组放回它原来的位置=恢复原状, 蜘蛛里始终合法), 因此松手落在源列附近就读原位;
+   否则吸附到最近的合法可放列。返回 null 仅当既不在源列附近也没有别的合法目标。 */
+function findTargetAtX(x, fromCol, rank){
+  const cols=Array.from(document.querySelectorAll('.col'))
+        .map(el=>{const r=el.getBoundingClientRect(); return {ci:+el.dataset.ci, cx:r.left+r.width/2};});
+  // 先看指针是否落在源列范围内 -> 放回原位
+  const srcEl=cols.find(c=>c.ci===fromCol);
+  if(srcEl){
+    const srcR=document.querySelector(`.col[data-ci="${fromCol}"]`).getBoundingClientRect();
+    if(x>=srcR.left && x<=srcR.right) return fromCol;   // 拖回源列 = 放回原位
+  }
+  // 否则: 最近的合法可放目标列(排除源列)
+  cols.sort((p,q)=>Math.abs(p.cx-x)-Math.abs(q.cx-x));
+  for(const c of cols){
+    if(c.ci===fromCol) continue;
+    if(canPlace(rank, state.cols[c.ci])) return c.ci;
+  }
+  return null;
+}
+
+/* pointer 处理入口 */
+let ptr=null;
+function onPress(c, idx, ev){
+  const colArr=state.cols[c], grp=movableGroup(colArr,idx);
+  if(!grp) return; // 背面或不可移
+  const topEl=document.querySelector(`.card[data-col="${c}"][data-idx="${idx}"]`);
+  let grabDX=0, grabDY=0;
+  if(topEl){ const r=topEl.getBoundingClientRect(); grabDX=ev.clientX-r.left; grabDY=ev.clientY-r.top; }
+  ptr={ c, idx, x0:ev.clientX, y0:ev.clientY, grabDX, grabDY, dragging:false };
+  selected=null; cancelDrag();
+  ev.preventDefault();
+}
+function onMove(ev){
+  if(!ptr) return;
+  const dx=ev.clientX-ptr.x0, dy=ev.clientY-ptr.y0;
+  if(!ptr.dragging && Math.hypot(dx,dy)>6){
+    ptr.dragging=true;
+    drag={ col:ptr.c, idx:ptr.idx, active:true, x0:ptr.x0, y0:ptr.y0 };
+    layoutDragLayer();
+    const fc=state.cols[ptr.c];
+    for(let i=ptr.idx;i<fc.length;i++){
+      const el=document.querySelector(`.card[data-col="${ptr.c}"][data-idx="${i}"]`);
+      if(el) el.classList.add('source-hide');
+    }
+  }
+  if(ptr.dragging){
+    const dl=$('drag-layer');
+    dl.style.left=(ev.clientX-ptr.grabDX)+'px';
+    dl.style.top=(ev.clientY-ptr.grabDY)+'px';
+    // 高亮: 最近的合法可放目标
+    const fromRank=state.cols[ptr.c][ptr.idx].r;
+    const tc=findTargetAtX(ev.clientX, ptr.c, fromRank);
+    clearHit();
+    if(tc===ptr.c){
+      // 指针在源列上 -> 高亮"放回原位"(取消拖动)
+      const srcEl=document.querySelector(`.col[data-ci="${tc}"]`);
+      if(srcEl) srcEl.classList.add('origin-drop');
+    } else if(tc!==null){
+      const hs=document.querySelector(`.col[data-ci="${tc}"] .empty-slot, .col[data-ci="${tc}"] .stack > .card:last-child`);
+      if(hs) hs.classList.add('hint-target');
+    }
+  }
+}
+function clearHit(){
+  document.querySelectorAll('.hint-target').forEach(e=>e.classList.remove('hint-target'));
+  document.querySelectorAll('.col.origin-drop').forEach(e=>e.classList.remove('origin-drop'));
+}
+function onRelease(ev){
+  if(!ptr) return;
+  const wasDrag = ptr.dragging;
+  const col=ptr.c, idx=ptr.idx;
+  const fromRank=state.cols[col][idx].r;
+  ptr=null; cancelDrag(); clearHit();
+  if(wasDrag){
+    const tc=findTargetAtX(ev.clientX, col, fromRank);
+    if(tc===col){ render(); return; }          // 放回源列 = 还原原位, 不扣分不计史
+    if(tc!==null){ moveGroup(col,idx,tc); render(); return; }
+    render(); return;                          // 没有合法目标 -> 还原
+  }
+  // 未拖拽 = 点击 -> 自动移动
+  autoMove(col, idx);
+  render();
+}
+/* 点击自动移动到最近合法目标 */
+function autoMove(col, idx){
+  const grp=movableGroup(state.cols[col],idx);
+  if(!grp){ if(state.cols[col][idx]&&!state.cols[col][idx].faceUp) return; toast("这叠牌不能移动"); return; }
+  const targets=legalTargets(grp[0].r, col);
+  if(!targets.length){ toast("没有可用位置"); return; }
+  const tc=bestRunTarget(col, targets, grp[0]);
+  if(tc===null) tc=nearestTarget(col, targets);   // 兜底: 全无延伸时按最近
+  moveGroup(col,idx,tc);   // moveGroup 内部 pushHistory + render
+}
+function onColPress(c,ev){
+  // 空白区域不 preventDefault, 让原生滚动失效兜底; 若已选中可落位到空列
+  if(selected && state.cols[c].length===0){ moveGroup(selected.fc,selected.fi,c); selected=null; render(); }
+}
+
+/* 全局 pointer 委托 (支持多点, 只处理鼠标/主指即 pointerType non-touch multi safety) */
+$('table').addEventListener('pointerdown',e=>{
+  const cardEl=e.target.closest('.card');
+  if(!cardEl) return;
+  const c=+cardEl.dataset.col, idx=+cardEl.dataset.idx;
+  onPress(c,idx,e);
+});
+window.addEventListener('pointermove',onMove,{passive:false});
+window.addEventListener('pointerup',onRelease);
+window.addEventListener('pointercancel',()=>{ if(ptr){ptr=null;cancelDrag();clearHit();render();} });
+
+/* ---------- Toast / 胜利 / 事件 ---------- */
+function toast(msg){ $('toast').textContent=msg; $('toast').classList.add('show');
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('toast').classList.remove('show'),1600); }
+function winGame(){ setTimeout(()=>{ $('win-msg').textContent=`最终得分 ${state.score} · ${state.completed.length} 组完成`;
+  $('win').classList.add('show'); },400); }
+document.querySelectorAll('.diff-btn').forEach(b=>b.addEventListener('click',()=>newGame(+b.dataset.diff)));
+$('btn-new').addEventListener('click',()=>newGame(state.diff));
+$('btn-win-new').addEventListener('click',()=>{ $('win').classList.remove('show'); newGame(state.diff); });
+$('btn-undo').addEventListener('click',undo);
+$('btn-hint').addEventListener('click',hint);
+
+
+// 调试钩子
+window.__dbg={ movableGroup, faceUpStart, topRunStart, canPlace, legalTargets, nearestTarget, bestRunTarget,
+               checkCompleteChain, findTargetAtX, columnAtX,
+               getState:()=>state, getSelected:()=>selected, render, toast,
+               __setState:s=>{state=s;} , RANKS };
+
+newGame(1);
+</script>
+</body>
+</html>
